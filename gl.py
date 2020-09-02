@@ -1,5 +1,5 @@
 '''
-        Lab2: Shaders
+        DR1: Spheres and Materials
 
 Creado por:
 
@@ -16,6 +16,13 @@ import time
 from random import randint as random
 from random import uniform as randomDec
 from obj import ObjReader
+
+#Constants
+V2 = collections.namedtuple('Point2', ['x', 'y'])
+V3 = collections.namedtuple('Point3', ['x', 'y', 'z'])
+V4 = collections.namedtuple('Point4', ['x', 'y', 'z', 'w'])
+BLACK = color(0,0,0)
+WHITE = color(1,1,1)
 
 def char(c):
     '''1 Byte'''
@@ -35,72 +42,23 @@ def dword(d):
 def color(r,g,b):
     '''Set pixel color'''
 
-    return bytes([b, g, r])
+    return bytes([b , g , r ])
 
-#Method of creating noise from Perlin Noise
-#Based on the C code called perlin.c https://gist.github.com/nowl/828013
-#We create constant to pick random values for the noise
-SEED = 0;
-hasho = [208,34,231,213,32,248,233,56,161,78,24,140,71,48,140,254,245,255,247,247,40,
-                     185,248,251,245,28,124,204,204,76,36,1,107,28,234,163,202,224,245,128,167,204,
-                     9,92,217,54,239,174,173,102,193,189,190,121,100,108,167,44,43,77,180,204,8,81,
-                     70,223,11,38,24,254,210,210,177,32,81,195,243,125,8,169,112,32,97,53,195,13,
-                     203,9,47,104,125,117,114,124,165,203,181,235,193,206,70,180,174,0,167,181,41,
-                     164,30,116,127,198,245,146,87,224,149,206,57,4,192,210,65,210,129,240,178,105,
-                     228,108,245,148,140,40,35,195,38,58,65,207,215,253,65,85,208,76,62,3,237,55,89,
-                     232,50,217,64,244,157,199,121,252,90,17,212,203,149,152,140,187,234,177,73,174,
-                     193,100,192,143,97,53,145,135,19,103,13,90,135,151,199,91,239,247,33,39,145,
-                     101,120,99,3,186,86,99,41,237,203,111,79,220,135,158,42,30,154,120,67,87,167,
-                     135,176,183,191,253,115,184,21,233,58,129,233,142,39,128,211,118,137,139,255,
-                     114,20,218,113,154,27,127,246,250,1,8,198,250,209,92,222,173,21,88,102,219]
+def barycentric(A, B, C, P):
+    '''Convert vertices to barycentric coordinates'''
+    
+    cx, cy, cz = cross(V3(B.x - A.x, C.x - A.x, A.x - P.x), V3(B.y - A.y, C.y - A.y, A.y - P.y))
 
-def noise2(x, y):
-    '''Map within array by module 256 and we return the value'''
-    tmp = hasho[(y + SEED) % 256]
-    return hasho[(tmp + x) % 256]
+    #CZ Cannot be less 1
+    if cz == 0:
+        return -1, -1, -1
 
-def lin_inter(x, y, s):
-    '''X function to the parameters sent'''
-    return float(x + s * (y-x))
+    #Calculate the barycentric coordinates
+    u = cx/cz
+    v = cy/cz
+    w = 1 - (u + v)
 
-def smooth_inter(x, y, s):
-    '''X function to the parameters sent'''
-    return lin_inter(float(x), float(y), float(s * s * (3-2*s)))
-
-def noise2d(x, y):
-    '''Ccreate noise from noise2 and smooth_inter'''
-    x_int = int(x)
-    y_int = int(y)
-    x_frac = float(x - x_int)
-    y_frac = float(y - y_int)
-    s = int(noise2(x_int, y_int))
-    t = int(noise2(x_int+1, y_int))
-    u = int(noise2(x_int, y_int+1))
-    v = int(noise2(x_int+1, y_int+1))
-    low = float(smooth_inter(s, t, x_frac))
-    high = float(smooth_inter(u, v, x_frac))
-    return float(smooth_inter(low, high, y_frac))
-
-def perlin2d(x, y, freq, depth):
-    '''Create value between 0 and 1'''
-    xa = float(x*freq)
-    ya = float(y*freq)
-    amp = float(1.0)
-    fin = float(0)
-    div = float(0.0)
-
-    for i in range(depth):
-        div += 256 * amp
-        fin += noise2d(xa, ya) * amp
-        amp /= 2
-        xa *= 2
-        ya *= 2
-
-    return float(fin/div)
-
-#Constants
-V2 = collections.namedtuple('Vertex2', ['x', 'y'])
-V3 = collections.namedtuple('Vertex3', ['x', 'y', 'z'])
+    return  w, v, u
 
 #Arithmetics
 
@@ -158,44 +116,20 @@ def multMatrices(m1,m2):
         print("\nERROR: The matrix multiplication could not be done because the number of columns of the first matrix is not equal to the number of rows of the second matrix")
         return 0
 
-def bbox(A, B, C):
-    
-    xs = sorted([int(A.x), int(B.x), int(C.x)])
-    ys = sorted([int(A.y), int(B.y), int(C.y)])
-    a = V2(int(xs[0]), int(ys[0]))
-    b = V2(int(xs[2]), int(ys[2]))    
-    
-    return a, b
-
-def barycentric(A, B, C, P):
-    '''Convert vertices to barycentric coordinates'''
-    
-    cx, cy, cz = cross(V3(B.x - A.x, C.x - A.x, A.x - P.x), V3(B.y - A.y, C.y - A.y, A.y - P.y))
-
-    #CZ Cannot be less 1
-    if cz == 0:
-        return -1, -1, -1
-
-    #Calculate the barycentric coordinates
-    u = cx/cz
-    v = cy/cz
-    w = 1 - (u + v)
-
-    return  w, v, u
-
-class Bitmap(object):
-    '''Bitmap Class'''
+class Raytracer(object):
+    '''Raytracer Class'''
 
     def __init__(self, width, height):
         '''Constructor'''
 
-        self.height = height
-        self.width = width
-        self.framebuffer = []
-        self.zbuffer = []
-        self.clear_color = color(0, 0, 0)
-        self.vertex_color = color(255, 255, 0)
-        self.glClear()
+        self.current_color = WHITE
+        self.clear_color = BLACK
+        self.glCreateWindow(width, height)
+
+        self.camPosition = V3(0, 0, 0)
+        self.fov = 60
+
+        self.scene = []
 
     def glInit(self):
         '''Initialize any internal objects that your renderer software requires'''
@@ -208,6 +142,15 @@ class Bitmap(object):
         self.height = height
         self.width = width
         self.glClear()
+        self.glViewport(0, 0, width, height)
+    
+    def glViewPort(self, x, y, width, height):
+        '''Define the area of the image to draw on'''
+
+        self.x = x
+        self.y = y
+        self.vpx = width
+        self.vpy = height
 
     def glClear(self):
         '''Set all pixels to same color'''
@@ -221,23 +164,43 @@ class Bitmap(object):
 
         self.zbuffer = [
             [
-                -1*float('inf') for x in range(self.width)
+                float('inf') for x in range(self.width)
                 ]
             for y in range(self.height)
         ]
 
-    def glClearColor(self, r, g, b):
-        '''Can change the color of glClear(), parameters must be numbers in the 
-        range of 0 to 1.'''
+    def glBackground(self, texture):
+        '''Background'''
+
+        self.framebuffer = [ [ texture.getColor(x / self.width, y / self.height) for x in range(self.width)] for y in range(self.height) ]
+
+    def glVertex(self, x, y, color = None):
+        '''Change the color of a point on the screen. The x, y coordinates are 
+        specific to the viewport that they defined with glViewPort().'''
+
+        pixelX = ( x + 1) * (self.vpx  / 2 ) + self.x
+        pixelY = ( y + 1) * (self.vpy / 2 ) + self.y
+
+        if pixelX >= self.width or pixelX < 0 or pixelY >= self.height or pixelY < 0:
+            return
 
         try:
-            self.rc = round(255*r)
-            self.gc = round(255*g)
-            self.bc = round(255*b)
-            self.clear_color = color(self.rc, self.gc, self.bc)
-        except ValueError:
-            print('\nERROR: Please enter a number between 1 and 0\n')
-    
+            self.framebuffer[round(pixelY)][round(pixelX)] = color or self.current_color
+        except:
+            pass
+
+    def glVertex_coord(self, x, y, color = None):
+        if x < self.x or x >= self.x + self.vpx or y < self.y or y >= self.y + self.vpy:
+            return
+
+        if x >= self.width or x < 0 or y >= self.height or y < 0:
+            return
+
+        try:
+            self.framebuffer[y][x] = color or self.current_color
+        except:
+            pass
+
     def glColor(self, r, g, b):
         '''Change the color glVertex() works with. The parameters must 
         be numbers in the range of 0 to 1.'''
@@ -250,1171 +213,19 @@ class Bitmap(object):
         except ValueError:
                 print('\nERROR: Please enter a number between 1 and 0\n')
 
-    def glPoint(self, x, y, color):
-        '''Draw a point'''
-        x = int(round((x+1) * self.width / 2))
-        y = int(round((y+1) * self.height / 2))
+    def glClearColor(self, r, g, b):
+        '''Can change the color of glClear(), parameters must be numbers in the 
+        range of 0 to 1.'''
+
         try:
-                self.framebuffer[y][x] = color
-        except IndexError:
-                #print("\nPixel is outside the limits of the image\n")
-                pass
-
-    def glLine(self, x0, y0, x1, y1):
-        '''Draw a straight line through the succession of pixels'''
-
-        #Convert the values between -1 and 1 to DMC coordenates
-        x0 = int(round((x0 + 1) * self.width / 2))
-        y0 = int(round((y0 + 1) * self.height / 2))
-        x1 = int(round((x1 + 1) * self.width / 2))
-        y1 = int(round((y1 + 1) * self.height / 2))
-
-        dy = abs(y1 - y0)
-        dx = abs(x1 - x0)
-
-        steep = dy > dx
-        
-        #If dy is greater than dx then we exchange each of the coordinates
-        if steep:
-            x0, y0 = y0, x0
-            x1, y1 = y1, x1
-        
-        #If the starting point in x is greater than the final point then we exchange the points
-        if x0 > x1:
-            x0, x1 = x1, x0
-            y0, y1 = y1, y0
-        
-        dy = abs(y1 - y0)
-        dx = abs(x1 - x0)
-
-        #Determine the points that will form the line
-        offset = 0 * 2 * dx
-        threshold = 0.5 * 2 * dx
-        y = y0
-
-        #Fill the line with points without leaving space between
-        for x in range(x0, x1 + 1):
-            if steep:
-                self.glPoint((float(y)/(float(self.width)/2))-1,(float(x)/(float(self.height)/2))-1,self.vertex_color)
-            else:
-                self.glPoint((float(x)/(float(self.width)/2))-1,(float(y)/(float(self.height)/2))-1,self.vertex_color)
-            offset += dy
-
-            if offset >= threshold:
-                y += 1 if y0 < y1 else -1
-                threshold += 1 * dx
-
-    def glTransform(self, vertex, translate=(0, 0, 0), scale=(1, 1, 1)):
-        '''Transforms vertex into tuple'''
-        try:
-            return V3(
-                (int(round((vertex[0]+1) * self.width / 2)) + translate[0]) * scale[0],
-                (int(round((vertex[1]+1) * self.height / 2)) + translate[1]) * scale[1],
-                (int(round((vertex[2]+1) * self.width / 2)) + translate[2]) * scale[2]
-            )
-        except IndexError:
-            return V3(
-                (int(round((vertex[0]+1) * self.width / 2)) + translate[0]) * scale[0],
-                (int(round((vertex[1]+1) * self.height / 2)) + translate[1]) * scale[1],
-                (int(round((0.0+1) * self.width / 2)) + translate[2]) * scale[2]
-            )
-
-    def glFillTriangle(self, a, b, c):
-        '''Algorithm for filling triangles'''
-
-        if a.y > b.y:
-            a, b = b, a
-        if a.y > c.y:
-            a, c = c, a
-        if b.y > c.y:
-            b, c = c, b
-        
-        ac_x_slope = c.x - a.x
-        ac_y_slope = c.y - a.y
-
-        if ac_y_slope == 0:
-            inverse_ac_slope = 0
-        else:
-            inverse_ac_slope = ac_x_slope / ac_y_slope
-
-        ab_x_slope = b.x - a.x
-        ab_y_slope = b.y - a.y
-
-        if ab_y_slope == 0:
-            inverse_ab_slope = 0
-        else:
-            inverse_ab_slope = ab_x_slope / ab_y_slope
-
-        for y in range(a.y, b.y + 1):
-            x0 = round(a.x - inverse_ac_slope * (a.y - y))
-            xf = round(a.x - inverse_ab_slope * (a.y - y))
-
-            if x0 > xf:
-                x0, xf = xf, x0
-            
-            for x in range(x0, xf + 1):
-                self.glPoint((float(x)/(float(self.width)/2))-1,(float(y)/(float(self.height)/2))-1,self.vertex_color)
-        
-        bc_x_slope = c.x - b.x
-        bc_y_slope = c.y - b.y
-
-        if bc_y_slope == 0:
-            inverse_bc_slope = 0
-        else:
-            inverse_bc_slope = bc_x_slope / bc_y_slope
-            
-        for y in range (b.y, c.y + 1):
-            x0 = int(round(a.x - inverse_ac_slope * (a.y - y)))
-            xf = int(round(b.x - inverse_bc_slope * (b.y - y)))
-
-            if x0 > xf:
-                x0, xf = xf, x0
-            
-            for x in range(x0, xf + 1):
-                self.glPoint((float(x)/(float(self.width)/2))-1,(float(y)/(float(self.height)/2))-1,self.vertex_color)
-
-    def triangle(self, A, B, C, light, color=None, texture=None, tex_coords=(), intensity = 1, normals_coords = (), colors = (), shaderr = 0, normalMap = None):
-        '''Algorithm for filling triangles with barycentric coords'''
-
-        bbox_min, bbox_max = bbox(A, B, C)
-
-        for x in range(bbox_min.x, bbox_max.x + 1):
-            for y in range(bbox_min.y, bbox_max.y +1):
-
-                w, v, u = barycentric(A, B, C, V2(x, y))
-
-                if w < 0 or v < 0 or u < 0:
-                    continue
-                
-                colorin = self.gouradEscena(
-                    bar = (w, v, u),
-                    xy = (x, y),
-                    varing_normals = normals_coords,
-                    light = light,
-                    shaders = shaderr,
-                    colors = colors
-                )
-                self.vertex_color = colorin
-
-                if texture:
-                    ta, tb, tc = tex_coords
-                    tx = ta.x * w + tb.x * v + tc.x * u
-                    ty = ta.y * w + tb.y * v + tc.y * u
-                    
-                    colorcito = texture.get_color(tx, ty, intensity)
-                    self.vertex_color = colorcito
-
-                    colorin = self.gourad(
-                        bar = (w, v, u),
-                        texture_coord = (tx, ty),
-                        textu = texture,
-                        varing_normals = normals_coords,
-                        light = light
-                    )
-                    self.vertex_color = colorin
-                
-                if normalMap:
-                    colorin = self.gouradNormalMap(
-                        bar = (w, v, u),
-                        xy = (x, y),
-                        varing_normals = normals_coords,
-                        normalMapping = normalMap,
-                        colors = colors,
-                        light = light
-                    )
-                    self.vertex_color = colorin
-                
-                z = A.z * w + B.z * v + C.z * u
-
-                try:
-                    if y > 0 and x >0:
-                        if z > self.zbuffer[y][x]:
-                            self.glPoint((float(x)/(float(self.width)/2))-1, (float(y)/(float(self.height)/2))-1,self.vertex_color)
-                            self.zbuffer[y][x] = z
-                except IndexError:
-                    pass
-
-    def gouradEscena(self, **kwargs):
-        '''Define shader in use'''
-
-        w, v, u = kwargs['bar']
-
-        x, y = kwargs['xy']
-
-        nA, nB, nC = kwargs['varing_normals']
-
-        light = kwargs['light']
-
-        color1, color2, color3 = kwargs['colors']
-
-        shader = kwargs['shaders']
-
-        nx = nA.x * w + nB.x * v + nC.x * u
-        ny = nA.y * w + nB.y * v + nC.y * u
-        nz = nA.z * w + nB.z * v + nC.z * u
-
-        vn = V3(nx,ny,nz)
-
-        intensity = dot(vn, light)
-
-        if intensity < 0:
-            intensity = 0
-        if intensity > 1:
-            intensity = 1
-        
-        salida = color(int(255*color1*intensity),int(255*color2*intensity),int(255*color3*intensity))
-
-        #Noise Shader
-        if shader == 1:
-            xi = float(float(x)/float(self.width))
-            yi = float(float(y)/float(self.height))
-
-            ruido = perlin2d(xi,yi,40,70)
-
-            salida = color(int(255*color1*intensity*ruido),int(255*color2*intensity*ruido),int(255*color3*intensity*ruido))
-        
-        #Toon Shader
-        if shader == 2:
-            if color1 > 0.77:
-                if y > 420 and y < 440:
-                    if x > 820 and x < 850:
-                        if x > 847:
-                            color1 = 0
-                            color2 = 0
-                            color3 = 0
-                            pass
-                        elif x > 846:
-                            pass
-                        elif x > 844:
-                            color1 = 0
-                            color2 = 0
-                            color3 = 0
-                            pass
-                        elif x > 842:
-                            pass
-                        elif x > 840:
-                            color1 = 0
-                            color2 = 0
-                            color3 = 0
-                            pass
-                        elif x > 837:
-                            pass
-                        elif x > 835:
-                            color1 = 0
-                            color2 = 0
-                            color3 = 0
-                            pass
-                        elif x > 833:
-                            pass
-                        elif x > 830:
-                            color1 = 0
-                            color2 = 0
-                            color3 = 0
-                            pass
-                        elif x > 827:
-                            pass
-                        elif x > 824:
-                            color1 = 0
-                            color2 = 0
-                            color3 = 0
-                            pass
-                        elif x > 822:
-                            pass
-                        elif x > 819:
-                            color1 = 0
-                            color2 = 0
-                            color3 = 0
-                            pass
-                else:
-                    pass
-                    
-            #TOON SHADER SOBRE LA CAMISA
-            elif color1 < 0.67:
-                if intensity > 0.9:
-                    intensity = 0.9
-                elif intensity > 0.8:
-                    intensity = 0.8
-                elif intensity > 0.7:
-                    intensity = 0.7
-                elif intensity > 0.6:
-                    intensity = 0.6
-                elif intensity > 0.5:
-                    intensity = 0.5
-                elif intensity > 0.4:
-                    intensity = 0.4
-                elif intensity > 0.3:
-                    intensity = 0.3
-                elif intensity > 0.2:
-                    intensity = 0.2
-                elif intensity > 0.1:
-                    intensity = 0.1
-                elif intensity >= 0.0:
-                    intensity = 0.0
-
-            salida = color(int(255*color1*intensity),int(255*color2*intensity),int(255*color3*intensity))
-
-        if shader == 3:
-            #Se verifica que los colores dentro del canal R sean mayores a 0.63 para aplicar el patron del shader
-            if color1 > 0.63:
-                if x > 190:
-                    color1 = 1
-                    color2 = 1
-                    color3 = 1
-                    pass
-                elif x > 180:
-                    color1 = 0.640000
-                    color2 = 0.010799
-                    color3 = 0.014528
-                    pass
-                elif x > 170:
-                    color1 = 1
-                    color2 = 1
-                    color3 = 1
-                    pass
-                elif x > 160:
-                    color1 = 0.640000
-                    color2 = 0.010799
-                    color3 = 0.014528
-                    pass
-                elif x > 150:
-                    color1 = 1
-                    color2 = 1
-                    color3 = 1
-                    pass
-                elif x > 140:
-                    color1 = 0.640000
-                    color2 = 0.010799
-                    color3 = 0.014528
-                    pass
-                elif x > 130:
-                    color1 = 1
-                    color2 = 1
-                    color3 = 1
-                    pass
-                elif x > 120:
-                    color1 = 0.640000
-                    color2 = 0.010799
-                    color3 = 0.014528
-                    pass
-                elif x > 110:
-                    color1 = 1
-                    color2 = 1
-                    color3 = 1
-                    pass
-                elif x > 100:
-                    color1 = 0.640000
-                    color2 = 0.010799
-                    color3 = 0.014528
-                    pass
-                elif x > 90:
-                    color1 = 1
-                    color2 = 1
-                    color3 = 1
-                    pass
-                elif x > 80:
-                    color1 = 0.640000
-                    color2 = 0.010799
-                    color3 = 0.014528
-                    pass
-                elif x > 70:
-                    color1 = 1
-                    color2 = 1
-                    color3 = 1
-                    pass
-                elif x > 60:
-                    color1 = 0.640000
-                    color2 = 0.010799
-                    color3 = 0.014528
-                    pass
-                elif x > 50:
-                    color1 = 1
-                    color2 = 1
-                    color3 = 1
-                    pass
-
-            salida = color(int(255*color1*intensity),int(255*color2*intensity),int(255*color3*intensity))
-
-        if shader == 4:
-            if color2 < 0.1:
-                #Primeros aros
-                for i in range(10):
-                    punto = ((x-300)**2)+((y-120)**2)
-                    k = i
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-                for i in range(20):
-                    punto = ((x-300)**2)+((y-120)**2)
-                    k = i + 30
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass                        
-                for i in range(20):
-                    punto = ((x-300)**2)+((y-120)**2)
-                    k = i + 70
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-                for i in range(20):
-                    punto = ((x-300)**2)+((y-120)**2)
-                    k = i + 110
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-
-                #Segundos aros
-                for i in range(10):
-                    punto = ((x-360)**2)+((y-125)**2)
-                    k = i
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-                for i in range(20):
-                    punto = ((x-360)**2)+((y-125)**2)
-                    k = i + 30
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass                        
-                for i in range(20):
-                    punto = ((x-360)**2)+((y-125)**2)
-                    k = i + 70
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-                for i in range(20):
-                    punto = ((x-360)**2)+((y-125)**2)
-                    k = i + 110
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-
-                #Terceros aros
-                for i in range(10):
-                    punto = ((x-330)**2)+((y-160)**2)
-                    k = i
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-                for i in range(20):
-                    punto = ((x-330)**2)+((y-160)**2)
-                    k = i + 30
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass                        
-                for i in range(20):
-                    punto = ((x-330)**2)+((y-160)**2)
-                    k = i + 70
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-                for i in range(20):
-                    punto = ((x-330)**2)+((y-160)**2)
-                    k = i + 110
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-
-                #Cuartos aros
-                for i in range(10):
-                    punto = ((x-330)**2)+((y-80)**2)
-                    k = i
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-                for i in range(20):
-                    punto = ((x-330)**2)+((y-80)**2)
-                    k = i + 30
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass                        
-                for i in range(20):
-                    punto = ((x-330)**2)+((y-80)**2)
-                    k = i + 70
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-                for i in range(20):
-                    punto = ((x-330)**2)+((y-80)**2)
-                    k = i + 110
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-
-                #Quintos aros
-                for i in range(10):
-                    punto = ((x-270)**2)+((y-170)**2)
-                    k = i
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-                for i in range(20):
-                    punto = ((x-270)**2)+((y-170)**2)
-                    k = i + 30
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass                        
-                for i in range(20):
-                    punto = ((x-270)**2)+((y-170)**2)
-                    k = i + 70
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-                for i in range(20):
-                    punto = ((x-270)**2)+((y-170)**2)
-                    k = i + 110
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-
-                #Sextos aros
-                for i in range(10):
-                    punto = ((x-270)**2)+((y-90)**2)
-                    k = i
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-                for i in range(20):
-                    punto = ((x-270)**2)+((y-90)**2)
-                    k = i + 30
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass                        
-                for i in range(20):
-                    punto = ((x-270)**2)+((y-90)**2)
-                    k = i + 70
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-                for i in range(20):
-                    punto = ((x-270)**2)+((y-90)**2)
-                    k = i + 110
-                    if k == punto:
-                        color1 = 1
-                        color2 = 1
-                        color3 = 1
-                    else:
-                        pass
-
-            salida = color(int(255*color1*intensity),int(255*color2*intensity),int(255*color3*intensity))
-
-        if shader == 5:
-            if intensity > 0.95:
-                intensity = 0.9
-            elif intensity > 0.9:
-                intensity = 0.8
-            elif intensity > 0.85:
-                intensity = 0.7
-            elif intensity > 0.8:
-                intensity = 0.6
-            elif intensity > 0.75:
-                intensity = 0.5
-            elif intensity > 0.7:
-                intensity = 0.5
-            elif intensity > 0.65:
-                intensity = 0.6
-            elif intensity > 0.6:
-                intensity = 0.7
-            elif intensity > 0.55:
-                intensity = 0.8
-            elif intensity > 0.5:
-                intensity = 0.9
-            elif intensity > 0.4:
-                intensity = 0.8
-            elif intensity > 0.3:
-                intensity = 0.7
-            elif intensity > 0.2:
-                intensity = 0.6
-            elif intensity > 0.1:
-                intensity = 0.5
-            elif intensity >= 0.0:
-                intensity = 0.5
-
-            salida = color(int(255*color1*intensity),int(255*color2*intensity),int(255*color3*intensity))  
-        
-        return salida
-    
-    def gouradNormalMap(self, **kwargs):
-        w, v, u = kwargs['bar']
-
-        color1, color2, color3 = kwargs['colors']
-
-        normalMap = kwargs['normalMapping']
-
-        tx, ty = kwargs['xy']
-
-        height, width = normalMap.getDimensions()
-        tx = tx/float(width)
-        ty = ty/float(height)
-
-        light = kwargs['light']
-
-        tnormal = normalMap.get_color(tx,ty)
-
-        vn = norm(V3(tnormal[2],tnormal[1],tnormal[0]))
-
-        nA, nB, nC = kwargs['varing_normals']
-
-        nx = nA.x * w + nB.x * v + nC.x * u
-        ny = nA.y * w + nB.y * v + nC.y * u
-        nz = nA.z * w + nB.z * v + nC.z * u
-
-        vn2 = V3(nx,ny,nz)
-
-        intensity = dot(vn, light)
-
-        if intensity < 0:
-            intensity = 0
-        if intensity > 1:
-            intensity = 1
-
-        if intensity > 0.95:
-            intensity = 0.9
-        elif intensity > 0.9:
-            intensity = 0.8
-        elif intensity > 0.85:
-            intensity = 0.7
-        elif intensity > 0.8:
-            intensity = 0.6
-        elif intensity > 0.75:
-            intensity = 0.5
-        elif intensity > 0.7:
-            intensity = 0.5
-        elif intensity > 0.65:
-            intensity = 0.6
-        elif intensity > 0.6:
-            intensity = 0.7
-        elif intensity > 0.55:
-            intensity = 0.8
-        elif intensity > 0.5:
-            intensity = 0.9
-        elif intensity > 0.4:
-            intensity = 0.8
-        elif intensity > 0.3:
-            intensity = 0.7
-        elif intensity > 0.2:
-            intensity = 0.6
-        elif intensity > 0.1:
-            intensity = 0.5
-        elif intensity >= 0.0:
-            intensity = 0.5
-        
-        intensity2 = dot(vn2, light)
-
-        if intensity2 < 0:
-            intensity2 = 0
-        if intensity2 > 1:
-            intensity2 = 1
-
-        salida = color(int(255*color1*intensity*intensity2),int(255*color2*intensity*intensity2),int(255*color3*intensity*intensity2))
-
-        return salida      
-
-    def glViewPort(self, x, y, width, height):
-        '''Define the area of the image to draw on'''
-
-        self.x = x
-        self.y = y
-        self.vpx = width
-        self.vpy = height
-    
-    def glVertex(self, x, y):
-        '''Change the color of a point on the screen. The x, y coordinates are 
-        specific to the viewport that they defined with glViewPort().'''
-
-        if x <= 1 and x>= -1 and y >= -1 and y <= 1:
-                
-                if x > 0:
-                        self.vx = self.x + round(round(self.vpx/2)*x) - 1
-                if y > 0:
-                        self.vy = self.y + round(round(self.vpy/2)*y) - 1
-                if x <= 0:
-                        self.vx = self.x + round(round(self.vpx/2)*x)
-                if y <= 0:
-                        self.vy = self.y + round(round(self.vpy/2)*y)
-                
-                self.glPoint(self.vx,self.vy, self.vertex_color)
-        else:
-                pass
-
-    def gourad(self, **kwargs):
-        '''Shader for textured Model'''
-        
-        w, v, u = kwargs['bar']
-        
-        nA, nB, nC = kwargs['varing_normals']
-        
-        tx, ty = kwargs['texture_coord']
-        
-        light = kwargs['light']
-        
-        tex = kwargs['textu']
-        
-        tcolor = tex.get_color(tx,ty)
-        
-        nx = nA.x * w + nB.x * v + nC.x * u
-        ny = nA.y * w + nB.y * v + nC.y * u
-        nz = nA.z * w + nB.z * v + nC.z * u
-        
-        vn = V3(nx,ny,nz)
-        
-        intensity = dot(vn, light)
-        
-        return bytes([
-            int(tcolor[2] * intensity) if tcolor[2] * intensity > 0 else 0,
-            int(tcolor[1] * intensity) if tcolor[1] * intensity > 0 else 0,
-            int(tcolor[0] * intensity) if tcolor[0] * intensity > 0 else 0
-        ])
-
-    def gourad2(self, **kwargs):
-        '''Shader for Model without texture'''
-
-        w, v, u = kwargs['bar']
-
-        x, y = kwargs['xy']
-
-        nA, nB, nC = kwargs['varing_normals']
-
-        light = kwargs['light']
-
-        nx = nA.x * w + nB.x * v + nC.x * u
-        ny = nA.y * w + nB.y * v + nC.y * u
-        nz = nA.z * w + nB.z * v + nC.z * u
-
-        vn = V3(nx,ny,nz)
-
-        xi = float(float(x)/float(self.width))
-        yi = float(float(y)/float(self.height))
-
-        ruido = perlin2d(xi,yi,10,20)
-
-        y = y + int(perlin2d(xi,yi,15,10)* random(0,40))
-
-        intensity = dot(vn, light)
-
-        if y > 765:
-            #Mostaza
-            return bytes([
-                    int(120 * intensity * ruido) if 120 * intensity > 0 else 0,
-                    int(176 * intensity * ruido) if 176 * intensity > 0 else 0,
-                    int(194 * intensity * ruido) if 194 * intensity > 0 else 0])
-        if y > 755:
-            #Piel
-            return bytes([
-                    int(160 * intensity * ruido) if 160 * intensity > 0 else 0,
-                    int(200 * intensity * ruido) if 200 * intensity > 0 else 0,
-                    int(220 * intensity * ruido) if 220 * intensity > 0 else 0])
-        if y > 745:
-            #Cafe claro
-            return bytes([
-                    int(107 * intensity * ruido) if 107 * intensity > 0 else 0,
-                    int(135 * intensity * ruido) if 135 * intensity > 0 else 0,
-                    int(193 * intensity * ruido) if 193 * intensity > 0 else 0])
-        if y > 715:
-            return bytes([
-                    int(160 * intensity * ruido) if 160 * intensity > 0 else 0,
-                    int(210 * intensity * ruido) if 210 * intensity > 0 else 0,
-                    int(240 * intensity * ruido) if 240 * intensity > 0 else 0])
-        if y > 700:
-            return bytes([
-                    int(160 * intensity * ruido) if 160 * intensity > 0 else 0,
-                    int(200 * intensity * ruido) if 200 * intensity > 0 else 0,
-                    int(220 * intensity * ruido) if 220 * intensity > 0 else 0])
-        if y > 690:
-            #PielPalido
-            return bytes([
-                    int(160 * intensity * ruido) if 160 * intensity > 0 else 0,
-                    int(200 * intensity * ruido) if 200 * intensity > 0 else 0,
-                    int(230 * intensity * ruido) if 230 * intensity > 0 else 0])
-        if y > 670:
-            #Blanco Gris
-            return bytes([
-                    int(218 * intensity * ruido) if 218 * intensity > 0 else 0,
-                    int(235 * intensity * ruido) if 235 * intensity > 0 else 0,
-                    int(231 * intensity * ruido) if 231 * intensity > 0 else 0])
-        if y > 650:
-            #Mostaza
-            return bytes([
-                    int(120 * intensity * ruido) if 120 * intensity > 0 else 0,
-                    int(176 * intensity * ruido) if 176 * intensity > 0 else 0,
-                    int(194 * intensity * ruido) if 194 * intensity > 0 else 0])
-        if y > 640:
-            #Piel
-            return bytes([
-                    int(160 * intensity * ruido) if 160 * intensity > 0 else 0,
-                    int(210 * intensity * ruido) if 210 * intensity > 0 else 0,
-                    int(250 * intensity * ruido) if 240 * intensity > 0 else 0])
-        if y > 560:
-            #Cafe claro
-            return bytes([
-                    int(107 * intensity * ruido) if 107 * intensity > 0 else 0,
-                    int(135 * intensity * ruido) if 135 * intensity > 0 else 0,
-                    int(193 * intensity * ruido) if 193 * intensity > 0 else 0])
-        if y > 510:
-            #Piel
-            return bytes([
-                    int(160 * intensity * ruido) if 160 * intensity > 0 else 0,
-                    int(210 * intensity * ruido) if 210 * intensity > 0 else 0,
-                    int(250 * intensity * ruido) if 240 * intensity > 0 else 0])
-        if y > 470:
-            #Blanco Gris
-            return bytes([
-                    int(218 * intensity * ruido) if 218 * intensity > 0 else 0,
-                    int(235 * intensity * ruido) if 235 * intensity > 0 else 0,
-                    int(231 * intensity * ruido) if 231 * intensity > 0 else 0])
-        if y > 430:
-            #Mostaza
-            return bytes([
-                    int(120 * intensity * ruido) if 120 * intensity > 0 else 0,
-                    int(176 * intensity * ruido) if 176 * intensity > 0 else 0,
-                    int(194 * intensity * ruido) if 194 * intensity > 0 else 0])
-        if y > 410:
-            #Mostaza
-            return bytes([
-                    int(100 * intensity * ruido) if 100 * intensity > 0 else 0,
-                    int(166 * intensity * ruido) if 166 * intensity > 0 else 0,
-                    int(198 * intensity * ruido) if 198 * intensity > 0 else 0])
-        if y > 400:
-            #Piel
-            return bytes([
-                    int(160 * intensity * ruido) if 160 * intensity > 0 else 0,
-                    int(210 * intensity * ruido) if 210 * intensity > 0 else 0,
-                    int(250 * intensity * ruido) if 240 * intensity > 0 else 0])
-        if y > 380:
-            #Cafe claro
-            return bytes([
-                    int(107 * intensity * ruido) if 107 * intensity > 0 else 0,
-                    int(135 * intensity * ruido) if 135 * intensity > 0 else 0,
-                    int(193 * intensity * ruido) if 193 * intensity > 0 else 0])
-        if y > 360:
-            #Piel
-            return bytes([
-                    int(160 * intensity * ruido) if 160 * intensity > 0 else 0,
-                    int(210 * intensity * ruido) if 210 * intensity > 0 else 0,
-                    int(250 * intensity * ruido) if 240 * intensity > 0 else 0])
-        if y > 340:
-            #Blanco Gris
-            return bytes([
-                int(218 * intensity * ruido) if 218 * intensity > 0 else 0,
-                int(235 * intensity * ruido) if 235 * intensity > 0 else 0,
-                int(231 * intensity * ruido) if 231 * intensity > 0 else 0])
-        if y > 320:
-            #Mostaza
-            return bytes([
-                int(120 * intensity * ruido) if 120 * intensity > 0 else 0,
-                int(176 * intensity * ruido) if 176 * intensity > 0 else 0,
-                int(194 * intensity * ruido) if 194 * intensity > 0 else 0])
-        if y > 300:
-            #Mostaza
-            return bytes([
-                int(120 * intensity * ruido) if 120 * intensity > 0 else 0,
-                int(176 * intensity * ruido) if 176 * intensity > 0 else 0,
-                int(194 * intensity * ruido) if 194 * intensity > 0 else 0])        
-        if y > 280:
-            #Blanco Gris
-            return bytes([
-                int(218 * intensity * ruido) if 218 * intensity > 0 else 0,
-                int(235 * intensity * ruido) if 235 * intensity > 0 else 0,
-                int(231 * intensity * ruido) if 231 * intensity > 0 else 0])
-        if y > 260:
-            #Mostaza
-            return bytes([
-                int(120 * intensity * ruido) if 120 * intensity > 0 else 0,
-                int(176 * intensity * ruido) if 176 * intensity > 0 else 0,
-                int(194 * intensity * ruido) if 194 * intensity > 0 else 0])
-        if y > 0:
-            #Blanco Gris
-            return bytes([
-                int(218 * intensity * ruido) if 218 * intensity > 0 else 0,
-                int(235 * intensity * ruido) if 235 * intensity > 0 else 0,
-                int(231 * intensity * ruido) if 231 * intensity > 0 else 0])
-
-    def glTransformMatrix(self, vector):
-        '''Transform Vector'''
-        vector_nuevo = [[vector.x],[vector.y],[vector.z],[1]]
-        nuevo_vector = multMatrices(self.laMatriz, vector_nuevo)
-        return V3(nuevo_vector[0][0]/nuevo_vector[3][0],nuevo_vector[1][0]/nuevo_vector[3][0],nuevo_vector[2][0]/nuevo_vector[3][0])
-
-    def glPipelineMatrix(self):
-        '''Pipeline Matrix'''
-        a = multMatrices(self.Model, self.View)
-        b = multMatrices(self.Proyection, a)
-        c = multMatrices(self.Viewport, b)
-        self.laMatriz = c
-    
-    def glFillPolygon(self, polygon):
-        '''Fill any given polygon'''
-        #Based on Point-in-Polygon (PIP) Algorithm
-        for y in range(self.height):
-            for x in range(self.width):
-                i = 0
-                j = len(polygon) - 1
-                draw_point = False
-                #Verifies if point is in between the boundaries
-                for i in range(len(polygon)):
-                    if (polygon[i][1] < y and polygon[j][1] >= y) or (polygon[j][1] < y and polygon[i][1] >= y):
-                        if polygon[i][0] + (y - polygon[i][1]) / (polygon[j][1] - polygon[i][1]) * (polygon[j][0] - polygon[i][0]) < x:
-                            draw_point = not draw_point
-                    j = i
-                if draw_point:
-                    self.glPoint((float(x)/(float(self.width)/2))-1,(float(y)/(float(self.height)/2))-1,self.vertex_color)
-
-    def glLoadObjModel(self, file_name, mtl=None, texture=None, translate=(0,0, 0), scale=(1,1, 1), rotate =(0,0,0), shader = None, mapping = None):
-        '''Load and Render .obj file'''
-        #Reads .obj file
-        self.loadModelMatrix(translate, scale, rotate)
-        self.glPipelineMatrix()
-        
-        if not mtl:
-            model = ObjReader(file_name)
-            model.readLines()
-        else:
-            model = ObjReader(file_name, mtl)
-            model.readLines()
-
-        light = V3(0, 0.5, 1)
-        
-        for face in model.faces:
-            if mtl:
-                vertices_ctr = len(face) - 1
-            else:
-                vertices_ctr = len(face)
-            
-            if vertices_ctr == 3:
-                f1 = face[0][0] - 1
-                f2 = face[1][0] - 1
-                f3 = face[2][0] - 1
-                
-                a = self.glTransform(model.vertices[f1], translate, scale)
-                b = self.glTransform(model.vertices[f2], translate, scale)
-                c = self.glTransform(model.vertices[f3], translate, scale)
-                
-                a = self.glTransformMatrix(a)
-                b = self.glTransformMatrix(b)
-                c = self.glTransformMatrix(c)
-                
-                n1 = face[0][2] - 1
-                n2 = face[1][2] - 1
-                n3 = face[2][2] - 1
-
-                normal = V3(*model.normals[n1])
-
-                light = norm(light)
-
-                intensity = dot(normal, light)
-                
-                nA = V3(*model.normals[n1])
-                nB = V3(*model.normals[n2])
-                nC = V3(*model.normals[n3])
-
-                if intensity < 0:
-                    continue
-                
-                if texture:
-                    tv1 = face[0][1] - 1
-                    tv2 = face[1][1] - 1
-                    tv3 = face[2][1] - 1
-                    
-                    tvA = V2(*model.tex_coords[tv1])
-                    tvB = V2(*model.tex_coords[tv2])
-                    tvC = V2(*model.tex_coords[tv3])
-
-                    self.triangle(a,b,c, light, texture = texture, tex_coords = (tvA, tvB, tvC), intensity = intensity, normals_coords = (nA, nC, nB))
-                
-                elif mtl:
-                    material2 = face[3]
-                    valorcito = model.material[material2]
-                    self.triangle(a,b,c,light,color = self.glColor(valorcito[0]*intensity,valorcito[1]*intensity, valorcito[2]*intensity),normals_coords = (nA, nC, nB),colors=(valorcito[0],valorcito[1],valorcito[2]),shaderr=shader,normalMap = mapping)
-
-                else:
-                    self.glColor(intensity, intensity, intensity)
-                    self.triangle(a,b,c,light,color = self.glColor(intensity, intensity, intensity), normals_coords = (nA, nC, nB))
-    
-    def loadModelMatrix(self, translate=(0,0,0),scale=(1,1,1),rotate=(0,0,0)):
-        translate_matrix = [
-            [1,0,0,translate[0]],
-            [0,1,0,translate[1]],
-            [0,0,1,translate[2]],
-            [0,0,0,1]
-        ]
-        
-        scale_matrix = [
-            [scale[0],0,0,0],
-            [0,scale[1],0,0],
-            [0,0,scale[2],0],
-            [0,0,0,1]
-        ]
-        
-        a = rotate[0]
-        rotation_matrix_x = [
-            [1,0,0,0],
-            [0,math.cos(a),-1*(math.sin(a)),0],
-            [0,math.sin(a),math.cos(a),0],
-            [0,0,0,1]
-        ]
-        
-        a = rotate[1]
-        rotation_matrix_y = [
-            [math.cos(a),0,math.sin(a),0],
-            [0,1,0,0],
-            [-1*(math.sin(a)),0,math.cos(a),0],
-            [0,0,0,1]
-        ]
-
-        a = rotate[2]
-        rotation_matrix_z = [
-            [math.cos(a),-1*(math.sin(a)),0,0],
-            [math.sin(a),math.cos(a),0,0],
-            [0,0,1,0],
-            [0,0,0,1]
-        ]
-
-        primera = multMatrices(rotation_matrix_z,rotation_matrix_y)
-        rotation_matrix = multMatrices(primera,rotation_matrix_x)
-        
-        segunda = multMatrices(rotation_matrix,scale_matrix)
-        self.Model = multMatrices(translate_matrix,segunda)
-
-    def lookAt(self, eye, center, up):
-        z = norm(sub(eye, center))
-        x = norm(cross(up,z))
-        y = norm(cross(z,x))
-        self.loadViewMatrix(x, y, z, center)
-        self.loadProyectionMatrix(1/magnitud(sub(eye,center)))
-
-    def loadViewMatrix(self, x, y, z, center):
-        M = [
-            [x.x,x.y,x.z,0],
-            [y.x,y.y,y.z,0],
-            [z.x,z.y,z.z,0],
-            [0,0,0,1]
-        ]
-        O = [
-            [1,0,0,-1*center.x],
-            [0,1,0,-1*center.y],
-            [0,0,1,-1*center.z],
-            [0,0,0,1]
-        ]
-        self.View = multMatrices(M,O)
-    
-    def loadProyectionMatrix(self, coeff):
-        self.Proyection = [
-            [1,0,0,0],
-            [0,1,0,0],
-            [0,0,1,0],
-            [0,0,coeff,1]
-        ]
-    
-    def loadViewportMatrix(self, x, y):
-        self.Viewport = [
-            [self.width/2,0,0,x+self.width/2],
-            [0,self.height/2,0,y+self.height/2],
-            [0,0,128,128],
-            [0,0,0,1]
-        ]
-    
-    def glLoadTexture(self, file_name, translate=(0, 0), scale=(1, 1)):
-        '''Load Texture from BMP file'''
-        model = ObjReader(file_name)
-        model.readLines()
-
-        for face in model.faces:
-            vertices_ctr = len(face)
-            if vertices_ctr == 3:
-
-                tv1 = face[0][1] - 1
-                tv2 = face[1][1] - 1
-                tv3 = face[2][1] - 1
-
-                tvA = V2(*model.tex_coords[tv1])
-                tvB = V2(*model.tex_coords[tv2])
-                tvC = V2(*model.tex_coords[tv3])
-                
-                tvAx, tvAy = tvA.x,tvA.y
-                tvBx, tvBy = tvB.x,tvB.y
-                tvCx, tvCy = tvC.x,tvC.y
-                
-                tvAx = (tvAx * 2) - 1
-                tvAy = (tvAy * 2) - 1
-                tvBx = (tvBx * 2) - 1
-                tvBy = (tvBy * 2) - 1
-                tvCx = (tvCx * 2) - 1
-                tvCy = (tvCy * 2) - 1
-                
-                self.glLine(tvAx, tvAy,tvBx, tvBy)
-                self.glLine(tvBx, tvBy,tvCx, tvCy)
-                self.glLine(tvCx, tvCy,tvAx, tvAy)
-
-
-    def glWrite(self, file_name):
+            self.rc = round(255*r)
+            self.gc = round(255*g)
+            self.bc = round(255*b)
+            self.clear_color = color(self.rc, self.gc, self.bc)
+        except ValueError:
+            print('\nERROR: Please enter a number between 1 and 0\n')
+
+    def glFinish(self, file_name):
         '''Write Bitmap File'''
         
         bmp_file = open(file_name, 'wb')
@@ -1442,7 +253,80 @@ class Bitmap(object):
         # Pixeles, 3 bytes each
         for x in range(self.height):
             for y in range(self.width):
-                self.framebuffer[x][y]
                 bmp_file.write(self.framebuffer[x][y])
             
         bmp_file.close()
+
+    def glZBuffer(self, filename):
+        bmp_file = open(filename, 'wb')
+
+        # File header 14 bytes
+        bmp_file.write(bytes('B'.encode('ascii')))
+        bmp_file.write(bytes('M'.encode('ascii')))
+        bmp_file.write(dword(14 + 40 + self.width * self.height * 3))
+        bmp_file.write(dword(0))
+        bmp_file.write(dword(14 + 40))
+
+        # Image Header 40 bytes
+        bmp_file.write(dword(40))
+        bmp_file.write(dword(self.width))
+        bmp_file.write(dword(self.height))
+        bmp_file.write(word(1))
+        bmp_file.write(word(24))
+        bmp_file.write(dword(0))
+        bmp_file.write(dword(self.width * self.height * 3))
+        bmp_file.write(dword(0))
+        bmp_file.write(dword(0))
+        bmp_file.write(dword(0))
+        bmp_file.write(dword(0))
+
+        # Minimo y el maximo
+        minZ = float('inf')
+        maxZ = -float('inf')
+        for x in range(self.height):
+            for y in range(self.width):
+                if self.zbuffer[x][y] != -float('inf'):
+                    if self.zbuffer[x][y] < minZ:
+                        minZ = self.zbuffer[x][y]
+
+                    if self.zbuffer[x][y] > maxZ:
+                        maxZ = self.zbuffer[x][y]
+
+        for x in range(self.height):
+            for y in range(self.width):
+                depth = self.zbuffer[x][y]
+                if depth == -float('inf'):
+                    depth = minZ
+                depth = (depth - minZ) / (maxZ - minZ)
+                bmp_file.write(color(depth,depth,depth))
+
+        bmp_file.close()
+
+    def rtRender(self):
+        for y in range(self.height):
+            for x in range(self.width):
+                # NDC
+                Px = 2 * ( (x+0.5) / self.width) - 1
+                Py = 2 * ( (y+0.5) / self.height) - 1
+
+                # FOV
+                t = tan( (self.fov * np.pi / 180) / 2 )
+                r = t * self.width / self.height
+                Px *= r
+                Py *= t
+
+                # Cam always towards -k
+                direction = V3(Px, Py, -1)
+                direction = direction / norm(direction)
+
+                material = None
+
+                for obj in self.scene:
+                    intersect = obj.ray_intersect(self.camPosition, direction)
+                    if intersect is not None:
+                        if intersect.distance < self.zbuffer[y][x]:
+                            self.zbuffer[y][x] = intersect.distance
+                            material = obj.material
+
+                if material is not None:
+                    self.glVertex_coord(x, y, material.diffuse)
