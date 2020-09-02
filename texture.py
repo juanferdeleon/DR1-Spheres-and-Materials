@@ -43,7 +43,7 @@ class Texture(object):
         
         img.close()
     
-    def get_color(self, tx, ty, intensity = 1):
+    def getColor(self, tx, ty, intensity = 1):
         '''Get the color of each pixel from BMP file'''
         
         x = int(tx * self.width)
