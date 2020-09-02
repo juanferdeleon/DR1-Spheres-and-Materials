@@ -7,7 +7,7 @@
 
 Descargue el repositorio [DR1: Spheres and Materials](https://github.com/juanferdeleon/DR1-Spheres-and-Materials)
 
-Luego ejecute el archivo [Engine3D.py](/Engine3D.py) dentro de cualquier IDE.
+Luego ejecute el archivo [Raytracer.py](/Raytracer.py) dentro de cualquier IDE.
 
 Si lo ejecuta desde la linea de comandos:
 
